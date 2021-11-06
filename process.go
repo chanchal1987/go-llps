@@ -1,7 +1,24 @@
 // llps provides an API for finding and listing processes in a platform-agnostic way.
 package llps
 
-import sdk "github.com/mitchellh/go-ps"
+import (
+	"errors"
+	"fmt"
+
+	sdk "github.com/mitchellh/go-ps"
+)
+
+var (
+	// ErrUnableToFindProcess is returned when a process is cannot be retrieved.
+	ErrUnableToFindProcess = errors.New("unable to find process")
+
+	// ErrNoProcessFound is returned when no process is found.
+	ErrNoProcessFound = errors.New("no process found")
+)
+
+func errUnableToFindProcess(err error) error {
+	return fmt.Errorf("%w: %s", ErrUnableToFindProcess, err.Error())
+}
 
 // Process contains information about a running process.
 //
@@ -18,13 +35,13 @@ type Process struct {
 }
 
 // String returns a human-friendly string for the process.
-func (p *Process) String() string {
-	return p.Executable
+func (ps *Process) String() string {
+	return fmt.Sprintf("%s (PID: %d)", ps.Executable, ps.PID)
 }
 
 // GoToParent returns nth the parent process of the given process.
-func (ps *Process) GoToParent(n int) *Process {
-	if n <= 0 {
+func (ps *Process) GoToParent(depth int) *Process {
+	if depth <= 0 {
 		return ps
 	}
 
@@ -32,7 +49,7 @@ func (ps *Process) GoToParent(n int) *Process {
 		return nil
 	}
 
-	return ps.ParentProcess.GoToParent(n - 1)
+	return ps.ParentProcess.GoToParent(depth - 1)
 }
 
 // FindExecutable find all the processes matched by the lookup func.
@@ -49,19 +66,20 @@ func (ps *Process) FindExecutable(f func(executable string) bool) (processes []*
 func processMap() (map[int]*Process, error) {
 	processes, err := sdk.Processes()
 	if err != nil {
-		return nil, err
+		return nil, errUnableToFindProcess(err)
 	}
 
 	processMap := make(map[int]*Process, len(processes))
+
 	for _, process := range processes {
 		ppid := process.PPid()
 		if _, ok := processMap[ppid]; !ok && ppid != 0 {
-			processMap[ppid] = &Process{PID: ppid}
+			processMap[ppid] = &Process{ParentProcess: nil, PID: ppid, Executable: ""}
 		}
 
 		pid := process.Pid()
 		if _, ok := processMap[pid]; !ok {
-			processMap[pid] = &Process{PID: pid}
+			processMap[pid] = &Process{ParentProcess: nil, PID: pid, Executable: ""}
 		}
 
 		if ppid != 0 {
@@ -106,5 +124,5 @@ func FindProcess(pid int) (*Process, error) {
 		return process, nil
 	}
 
-	return nil, nil
+	return nil, ErrNoProcessFound
 }
