@@ -8,65 +8,31 @@ import (
 	sdk "github.com/mitchellh/go-ps"
 )
 
-var (
-	// ErrUnableToFindProcess is returned when a process is cannot be retrieved.
-	ErrUnableToFindProcess = errors.New("unable to find process")
+var ErrNoProcessFound = errors.New("no process found")
 
-	// ErrNoProcessFound is returned when no process is found.
-	ErrNoProcessFound = errors.New("no process found")
-)
-
-func errUnableToFindProcess(err error) error {
-	return fmt.Errorf("%w: %s", ErrUnableToFindProcess, err.Error())
+// ErrUnableToFindProcess is returned when a process is cannot be retrieved.
+func ErrUnableToFindProcess(err error) error {
+	return fmt.Errorf("%s: %w", "unable to find process", err)
 }
 
 // Process contains information about a running process.
 //
 // This is generic to all operating systems supported by github.com/mitchellh/go-ps.
 type Process struct {
-	// ParentProcess is the information about the parent process.
-	ParentProcess *Process
+	// Parent is the information about the parent process.
+	Parent *Process
 
-	// Pid is the process ID for this process.
+	// PID is the process ID for this process.
 	PID int
 
 	// Executable name running this process. This is not a path to the executable.
 	Executable string
 }
 
-// String returns a human-friendly string for the process.
-func (ps *Process) String() string {
-	return fmt.Sprintf("%s (PID: %d)", ps.Executable, ps.PID)
-}
-
-// GoToParent returns nth the parent process of the given process.
-func (ps *Process) GoToParent(depth int) *Process {
-	if depth <= 0 {
-		return ps
-	}
-
-	if ps.ParentProcess == nil {
-		return nil
-	}
-
-	return ps.ParentProcess.GoToParent(depth - 1)
-}
-
-// FindExecutable find all the processes matched by the lookup func.
-func (ps *Process) FindExecutable(f func(executable string) bool) (processes []*Process) {
-	for psCopy := ps; psCopy != nil; psCopy = psCopy.ParentProcess {
-		if f(psCopy.Executable) {
-			processes = append(processes, psCopy)
-		}
-	}
-
-	return
-}
-
 func processMap() (map[int]*Process, error) {
 	processes, err := sdk.Processes()
 	if err != nil {
-		return nil, errUnableToFindProcess(err)
+		return nil, ErrUnableToFindProcess(err)
 	}
 
 	processMap := make(map[int]*Process, len(processes))
@@ -74,16 +40,16 @@ func processMap() (map[int]*Process, error) {
 	for _, process := range processes {
 		ppid := process.PPid()
 		if _, ok := processMap[ppid]; !ok && ppid != 0 {
-			processMap[ppid] = &Process{ParentProcess: nil, PID: ppid, Executable: ""}
+			processMap[ppid] = &Process{Parent: nil, PID: ppid, Executable: ""}
 		}
 
 		pid := process.Pid()
 		if _, ok := processMap[pid]; !ok {
-			processMap[pid] = &Process{ParentProcess: nil, PID: pid, Executable: ""}
+			processMap[pid] = &Process{Parent: nil, PID: pid, Executable: ""}
 		}
 
 		if ppid != 0 {
-			processMap[pid].ParentProcess = processMap[ppid]
+			processMap[pid].Parent = processMap[ppid]
 		}
 
 		processMap[pid].Executable = process.Executable()
@@ -113,7 +79,7 @@ func Processes() ([]*Process, error) {
 
 // FindProcess looks up a single process by pid.
 //
-// Process will be nil and error will be nil if a matching process is not found.
+// Thid func will send ErrNoProcessFound if a matching process is not found.
 func FindProcess(pid int) (*Process, error) {
 	processMap, err := processMap()
 	if err != nil {
